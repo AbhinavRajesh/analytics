@@ -6,6 +6,7 @@ import Layout from "@components/Layout";
 import Navbar from "@components/Navbar";
 import { useAuth } from "hooks/useAuth";
 import Create from "@components/Create";
+import DisplaySites from "@components/DisplaySites";
 
 const Home: NextPage = () => {
   const router = useRouter();
@@ -35,7 +36,7 @@ const Home: NextPage = () => {
     <Layout>
       <Navbar />
       <Create />
-      This is cool
+      <DisplaySites />
     </Layout>
   );
 };

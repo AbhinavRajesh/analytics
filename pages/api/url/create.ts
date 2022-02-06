@@ -3,20 +3,29 @@ import { NextApiRequest, NextApiResponse } from "next";
 import * as yup from "yup";
 import { urlsDB } from "utils/deta";
 import { withAuth } from "utils/firebase-admin";
+import { supabase } from "utils/supabase";
 
-interface Data {}
-
-interface detaUrls {
-  key: string;
+interface DataError {
+  success: false;
+  message?: string;
+}
+interface DataSuccess {
+  success: true;
   slug: string;
   url: string;
-  uid: string;
+}
+
+interface UrlsResponse {
+  id: number | string;
+  created_at: string;
+  slug: string;
+  url: string;
 }
 
 interface CreateUrlBody {
-  slug: string;
+  slug?: string;
   url: string;
-  uid: string;
+  user_id: string;
 }
 
 const schema = yup.object().shape({
@@ -25,35 +34,60 @@ const schema = yup.object().shape({
     .trim()
     .matches(/[\w\-]/i),
   url: yup.string().trim().url().required(),
-  uid: yup.string().trim().required(),
 });
 
-const handler = async (req: NextApiRequest, res: NextApiResponse<Data>) => {
-  const { slug, url, uid }: CreateUrlBody = JSON.parse(req.body);
+const handler = async (
+  req: NextApiRequest,
+  res: NextApiResponse<DataSuccess | DataError>
+) => {
+  const { slug, url, user_id }: CreateUrlBody = JSON.parse(req.body);
+  console.log(JSON.parse(req.body));
   try {
     const newUrl = {
       slug,
       url,
-      uid,
     };
     await schema.validate(newUrl);
     if (!slug) {
+      newUrl.slug = nanoid(6).toLowerCase();
+    } else {
+      newUrl.slug = slug.toLowerCase();
+    }
+    const existing = await supabase
+      .from<UrlsResponse>("urls")
+      .select()
+      .eq("slug", newUrl.slug);
+    console.log(existing);
+    if (existing.error) console.log(existing.error);
+    if (slug && existing.data && existing?.data?.length !== 0) {
+      throw new Error("Slug already in use");
+    } else if (typeof slug === "undefined") {
       newUrl.slug = nanoid(6);
     }
-    newUrl.slug = slug.toLowerCase();
-    const existing = (await urlsDB
-      ?.fetch({ slug })
-      .then((res) => res)) as unknown as detaUrls[];
-    if (existing.length > 0) {
-      throw new Error("Slug already in use");
-    } else {
-      await urlsDB.put(newUrl);
+    const { data, error } = await supabase
+      .from<UrlsResponse>("urls")
+      .insert([newUrl]);
+
+    if (data) {
+      const pivotTable = await supabase
+        .from<{ users_id: string; urls_id: number }>("urls_users")
+        .insert([{ urls_id: data[0].id as number, users_id: user_id }]);
+      console.log(pivotTable);
+      if (pivotTable.error)
+        throw new Error("Some error occured! Try again later.");
+    }
+
+    if (error) {
+      console.log(error);
+      throw new Error("Some error occured. Please try again later");
+    }
+    if (data && data[0])
       return res.status(200).json({
         success: true,
-        slug,
-        url,
+        slug: data?.[0].slug ?? slug,
+        url: data?.[0].url ?? url,
       });
-    }
+    throw new Error();
   } catch (error: any) {
     return res.status(error?.status ?? 500).json({
       success: false,
